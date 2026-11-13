@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MegaFilm Player</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body {
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .player-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 16px 20px;
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 10;
+      transition: opacity 0.3s ease;
+    }
+    .movie-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #ffffff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 80%;
+    }
+    .badge-hd {
+      background: #e50914;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .controls-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 24px 20px 16px 20px;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+      transition: opacity 0.3s ease;
+    }
+    .progress-bar-container {
+      position: relative;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      background: #e50914;
+      border-radius: 3px;
+    }
+    .controls-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .controls-left, .controls-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .btn-ctrl {
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      border-radius: 6px;
+      transition: transform 0.1s ease, color 0.2s ease;
+    }
+    .btn-ctrl:active {
+      transform: scale(0.9);
+      color: #e50914;
+    }
+    .btn-ctrl svg {
+      width: 26px;
+      height: 26px;
+      fill: currentColor;
+    }
+    .time-display {
+      font-size: 13px;
+      color: #cbd5e1;
+      font-variant-numeric: tabular-nums;
+    }
+    .speed-selector {
+      background: rgba(255, 255, 255, 0.15);
+      border: none;
+      color: #fff;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+    }
+    .speed-selector option {
+      background: #1e293b;
+      color: #fff;
+    }
+    .loading-spinner {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #e50914;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      z-index: 5;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .error-msg {
+      position: absolute;
+      background: rgba(220, 38, 38, 0.9);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+      z-index: 20;
+      text-align: center;
+      max-width: 85%;
+    }
+    .fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="player-container" id="playerWrap">
+    <div class="loading-spinner" id="spinner"></div>
+    <div class="error-msg" id="errorMsg">Video oqimini yuklab bo‘lmadi</div>
+
+    <!-- Top bar -->
+    <div class="top-bar" id="topBar">
+      <span class="movie-title" id="titleText">MegaFilm</span>
+      <span class="badge-hd">HD HLS</span>
+    </div>
+
+    <!-- Video Element -->
+    <video id="videoPlayer" playsinline preload="auto"></video>
+
+    <!-- Bottom controls -->
+    <div class="controls-overlay" id="controlsOverlay">
+      <!-- Progress Bar -->
+      <div class="progress-bar-container" id="progressContainer">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+
+      <!-- Control Buttons -->
+      <div class="controls-bottom">
+        <div class="controls-left">
+          <!-- Play / Pause -->
+          <button class="btn-ctrl" id="btnPlayPause" title="Ijro / To'xtatish">
+            <svg id="iconPlay" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="iconPause" style="display:none;" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+
+          <!-- 10s Rewind -->
+          <button class="btn-ctrl" id="btnRewind" title="10 soniya orqaga">
+            <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8zm-1.1 11h-.85v-3.26l-1.01.7-.42-.61 1.61-1.12h.67V16zm3.93-1.6c0 .54-.13.97-.38 1.28-.25.32-.61.48-1.08.48s-.82-.16-1.07-.48-.38-.74-.38-1.28v-1.08c0-.54.13-.97.38-1.28.25-.32.61-.48 1.08-.48s.83.16 1.08.48.37.74.37 1.28v1.08zm-.86-1.2c0-.36-.06-.63-.18-.82s-.3-.28-.54-.28-.42.09-.54.28-.18.46-.18.82v1.32c0 .36.06.63.18.82s.3.28.54.28.42-.09.54-.28.18-.46.18-.82v-1.32z"/></svg>
+          </button>
+
+          <!-- 10s Forward -->
+          <button class="btn-ctrl" id="btnForward" title="10 soniya oldinga">
+            <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8zm-1.1 11h-.85v-3.26l-1.01.7-.42-.61 1.61-1.12h.67V16zm3.93-1.6c0 .54-.13.97-.38 1.28-.25.32-.61.48-1.08.48s-.82-.16-1.07-.48-.38-.74-.38-1.28v-1.08c0-.54.13-.97.38-1.28.25-.32.61-.48 1.08-.48s.83.16 1.08.48.37.74.37 1.28v1.08zm-.86-1.2c0-.36-.06-.63-.18-.82s-.3-.28-.54-.28-.42.09-.54.28-.18.46-.18.82v1.32c0 .36.06.63.18.82s.3.28.54.28.42-.09.54-.28.18-.46.18-.82v-1.32z"/></svg>
+          </button>
+
+          <!-- Time Display -->
+          <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+        </div>
+
+        <div class="controls-right">
+          <!-- Speed -->
+          <select class="speed-selector" id="speedSelect">
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2.0x</option>
+          </select>
+
+          <!-- Fullscreen -->
+          <button class="btn-ctrl" id="btnFullscreen" title="To'liq ekran">
+            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Init Telegram WebApp
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      try {
+        tg.setHeaderColor('#0b0f19');
+        tg.setBackgroundColor('#0b0f19');
+      } catch (e) {}
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const streamUrl = urlParams.get('stream');
+    const title = urlParams.get('title') || 'MegaFilm';
+    const poster = urlParams.get('poster') || '';
+
+    const video = document.getElementById('videoPlayer');
+    const titleText = document.getElementById('titleText');
+    const spinner = document.getElementById('spinner');
+    const errorMsg = document.getElementById('errorMsg');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const iconPlay = document.getElementById('iconPlay');
+    const iconPause = document.getElementById('iconPause');
+    const btnRewind = document.getElementById('btnRewind');
+    const btnForward = document.getElementById('btnForward');
+    const btnFullscreen = document.getElementById('btnFullscreen');
+    const progressBar = document.getElementById('progressBar');
+    const progressContainer = document.getElementById('progressContainer');
+    const timeDisplay = document.getElementById('timeDisplay');
+    const speedSelect = document.getElementById('speedSelect');
+    const topBar = document.getElementById('topBar');
+    const controlsOverlay = document.getElementById('controlsOverlay');
+    const playerWrap = document.getElementById('playerWrap');
+
+    titleText.textContent = title;
+    if (poster) video.poster = poster;
+
+    let hideControlsTimeout = null;
+    function showControls() {
+      topBar.classList.remove('fade-out');
+      controlsOverlay.classList.remove('fade-out');
+      clearTimeout(hideControlsTimeout);
+      if (!video.paused) {
+        hideControlsTimeout = setTimeout(() => {
+          topBar.classList.add('fade-out');
+          controlsOverlay.classList.add('fade-out');
+        }, 3500);
+      }
+    }
+
+    playerWrap.addEventListener('mousemove', showControls);
+    playerWrap.addEventListener('touchstart', showControls);
+
+    function formatTime(seconds) {
+      if (isNaN(seconds) || seconds < 0) return '0:00';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      if (h > 0) {
+        return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+      }
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    function togglePlay() {
+      if (video.paused) {
+        video.play();
+      } else {
+        video.pause();
+      }
+    }
+
+    btnPlayPause.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePlay();
+    });
+
+    video.addEventListener('click', togglePlay);
+
+    video.addEventListener('play', () => {
+      iconPlay.style.display = 'none';
+      iconPause.style.display = 'block';
+      showControls();
+    });
+
+    video.addEventListener('pause', () => {
+      iconPlay.style.display = 'block';
+      iconPause.style.display = 'none';
+      showControls();
+    });
+
+    video.addEventListener('waiting', () => {
+      spinner.style.display = 'block';
+    });
+    video.addEventListener('playing', () => {
+      spinner.style.display = 'none';
+    });
+    video.addEventListener('canplay', () => {
+      spinner.style.display = 'none';
+    });
+
+    video.addEventListener('timeupdate', () => {
+      if (!video.duration) return;
+      const pct = (video.currentTime / video.duration) * 100;
+      progressBar.style.width = pct + '%';
+      timeDisplay.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+    });
+
+    progressContainer.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rect = progressContainer.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      if (video.duration) {
+        video.currentTime = pos * video.duration;
+      }
+    });
+
+    btnRewind.addEventListener('click', (e) => {
+      e.stopPropagation();
+      video.currentTime = Math.max(0, video.currentTime - 10);
+      showControls();
+    });
+
+    btnForward.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (video.duration) {
+        video.currentTime = Math.min(video.duration, video.currentTime + 10);
+      }
+      showControls();
+    });
+
+    speedSelect.addEventListener('change', (e) => {
+      video.playbackRate = parseFloat(e.target.value);
+    });
+
+    btnFullscreen.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!document.fullscreenElement) {
+        if (playerWrap.requestFullscreen) {
+          playerWrap.requestFullscreen();
+        } else if (video.webkitEnterFullscreen) {
+          video.webkitEnterFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+      }
+    });
+
+    // HLS Stream loader
+    if (!streamUrl) {
+      errorMsg.textContent = "Stream havolasi ko‘rsatilmadi";
+      errorMsg.style.display = 'block';
+    } else if (Hls.isSupported()) {
+      spinner.style.display = 'block';
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        backBufferLength: 90
+      });
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        spinner.style.display = 'none';
+        video.play().catch(() => {});
+      });
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.error('Fatal network error encountered, trying to recover');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.error('Fatal media error encountered, trying to recover');
+              hls.recoverMediaError();
+              break;
+            default:
+              hls.destroy();
+              errorMsg.textContent = "Oqimni yuklashda xatolik yuz berdi.";
+              errorMsg.style.display = 'block';
+              break;
+          }
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native Safari / iOS HLS support
+      video.src = streamUrl;
+      video.addEventListener('loadedmetadata', function () {
+        video.play().catch(() => {});
+      });
+    } else {
+      errorMsg.textContent = "Brauzeringiz HLS (.m3u8) formatini qo‘llab-quvvatlamaydi.";
+      errorMsg.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
